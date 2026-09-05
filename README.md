@@ -5,7 +5,7 @@
 
 > **开源协议**: MIT License, 详见 `LICENSE`。
 >
-> **直接下载 APK**: [obd-hud-release.apk](https://github.com/chuangkoudexin/OBD-/raw/master/release/obd-hud-release.apk)
+> **直接下载 APK**: [obd-hud-release.apk](https://github.com/chuangkoudexin/OBD-/releases/download/v1.0.0/obd-hud-release.apk)
 
 > ✅ 已在小米 17ProMax (1920x1200) 真机安装验证:
 > - 主仪表 / 实时数据 / 自定义 / 连接 四页均可正常显示与切换;
