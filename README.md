@@ -7,7 +7,7 @@
 >
 > **直接下载 APK**: [obd-hud-release.apk](https://github.com/chuangkoudexin/OBD-/raw/master/release/obd-hud-release.apk)
 
-> ✅ 已在小米平板 4 (1920x1200) 真机安装验证:
+> ✅ 已在小米 17ProMax (1920x1200) 真机安装验证:
 > - 主仪表 / 实时数据 / 自定义 / 连接 四页均可正常显示与切换;
 > - BLE 扫描正常, 实测扫描到附近 3 个 BLE 设备;
 > - 添加显示项对话框、连接与显示设置均可用;
