@@ -4,6 +4,8 @@
 发动机转速、车速、水温、进气温度、涡轮压力、节气门开度、空气流量等关键数据。
 
 > **开源协议**: MIT License, 详见 `LICENSE`。
+>
+> **直接下载 APK**: [obd-hud-release.apk](https://github.com/chuangkoudexin/OBD-/raw/master/release/obd-hud-release.apk)
 
 > ✅ 已在小米平板 4 (1920x1200) 真机安装验证:
 > - 主仪表 / 实时数据 / 自定义 / 连接 四页均可正常显示与切换;

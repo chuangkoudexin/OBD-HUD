@@ -48,6 +48,7 @@ app.*.map.json
 /dist/
 *.apk
 *.apk.1
+!release/*.apk
 build_apk.log
 build_apk.err.log
 flutter_*.log
