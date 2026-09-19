@@ -20,6 +20,14 @@ class Elm327Session {
   String _buffer = '';
   Completer<String>? _pending;
   final List<String> _debug = [];
+  int _activeProtocol = 0;
+  int _protocolPollIndex = 0;
+  bool _debugFlagSent = false;
+
+  /// 候选协议 (AndrOBD 风格轮询): 自动/早期/ISO/KWP/CAN/User
+  // 先试 CAN (6/7/8/9), 再 ISO/KWP, 最后自动; 参考 AndrOBD 对现代车型的处理
+  static const List<int> protocolsToTry = [6,7,8,9,3,4,5,0,1,2,10,11,12];
+  int get activeProtocol => _activeProtocol;
 
   Elm327Session(this._transport) {
     _subscription = _transport.input.listen(
@@ -93,8 +101,12 @@ class Elm327Session {
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     await _safeSend('ATE0');
     await _safeSend('ATL0');
+    await _safeSend('ATS0');
     await _safeSend('ATH1');
     await _safeSend('ATSP0');
+    await _safeSend('ATSTFA');
+    await _safeSend('ATAT2');
+    await _safeSend('AT+DEBUG_FLG');
     await _safeSend('AT+VERSION');
     await _safeSend('ATI');
     await _safeSend('ATRV');
@@ -132,13 +144,37 @@ class Elm327Session {
 
   /// 查询一个 PID, 返回原始数据字节 (不含 Mode/PID 头)
   Future<List<int>?> query(String command) async {
-    // 超时/无数据时重试一次, 兼容慢启动的 ELM327
+    // 超时/无数据时: 先恢复协议再重试一次, 兼容慢启动/慢响应车辆
     for (int attempt = 0; attempt < 2; attempt++) {
       final bytes = await _queryOnce(command);
       if (bytes != null) return bytes;
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (attempt == 0) {
+        // 厂商 YMOBD: 遇到读不到数据先发 AT+DEBUG_FLG
+        if (!_debugFlagSent) {
+          await _safeSend('AT+DEBUG_FLG', timeout: const Duration(seconds: 3));
+          _debugFlagSent = true;
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        await _recoverProtocol();
+      } else {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
     }
     return null;
+  }
+
+  /// 恢复 OBD 协议: 关闭/重开协议, 延长 ELM 等待时间 (参考 AndrOBD 自适应超时)
+  Future<void> _recoverProtocol() async {
+    await _safeSend('ATPC', timeout: const Duration(seconds: 2));
+    // AndrOBD 风格: 错误后自动换下一个协议重试
+    if (_protocolPollIndex >= protocolsToTry.length) {
+      _protocolPollIndex = 0;
+    }
+    _activeProtocol = protocolsToTry[_protocolPollIndex++];
+    await _safeSend('ATSP$_activeProtocol', timeout: const Duration(seconds: 3));
+    await _safeSend('ATSTFA', timeout: const Duration(seconds: 2));
+    await _safeSend('ATAT2', timeout: const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
   }
 
   Future<List<int>?> _queryOnce(String command) async {
@@ -179,28 +215,71 @@ class Elm327Session {
     return null;
   }
 
-  /// 读取 01 00 / 01 20 / 01 40 / 01 60 支持位图
+  /// 读取 01 00 / 01 20 / 01 40 / 01 60 支持位图 (AndrOBD 风格协议轮询)
   Future<Set<String>> readSupportedPids() async {
-    final supported = <String>{};
-    const blocks = [0x00, 0x20, 0x40, 0x60];
+    // 1) 逐个尝试候选协议, 找到能收到 0100 数据为止
+    _protocolPollIndex = 0;
+    for (final proto in protocolsToTry) {
+      await _safeSend('ATSP$proto', timeout: const Duration(seconds: 3));
+      await _safeSend('ATSTFA', timeout: const Duration(seconds: 2));
+      var probe = await _queryOnce('0100');
+      // 厂商 YMOBD: 遇到 UNABLE 先发一次 AT+DEBUG_FLG 解锁再重试
+      if ((probe == null) && !_debugFlagSent) {
+        await _safeSend('AT+DEBUG_FLG', timeout: const Duration(seconds: 3));
+        _debugFlagSent = true;
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        probe = await _queryOnce('0100');
+      }
+      if (probe == null || probe.length < 4) continue;
+      _activeProtocol = proto;
+      _protocolPollIndex = protocolsToTry.indexOf(proto) + 1;
+      // 现代 CAN 车型: 锁定发动机 ECU 地址 (7E0)
+      if (proto >= 6 && proto <= 9) {
+        await _safeSend('ATSH7E0');
+        await _safeSend('ATCRA7E0');
+      }
 
-    for (final block in blocks) {
+      final supported = <String>{};
+      _parseSupportedBlock('0100', probe, 0x00, supported);
+      for (final block in const [0x20, 0x40, 0x60]) {
+        final command = '01${block.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+        final bytes = await _queryOnce(command);
+        if (bytes != null && bytes.length >= 4) {
+          _parseSupportedBlock(command, bytes, block, supported);
+        }
+      }
+      return supported;
+    }
+
+    // 2) 全部失败: 回退自动协议再做一次常规扫描
+    await _safeSend('ATSP0', timeout: const Duration(seconds: 3));
+    await _safeSend('ATSTFA', timeout: const Duration(seconds: 2));
+    _activeProtocol = 0;
+    final supported = <String>{};
+    for (final block in const [0x00, 0x20, 0x40, 0x60]) {
       final command = '01${block.toRadixString(16).padLeft(2, '0').toUpperCase()}';
       final bytes = await query(command);
-      if (bytes == null || bytes.length < 4) continue;
+      if (bytes != null && bytes.length >= 4) {
+        _parseSupportedBlock(command, bytes, block, supported);
+      }
+    }
+    return supported;
+  }
 
-      for (int i = 0; i < 4; i++) {
-        for (int bit = 0; bit < 8; bit++) {
-          if ((bytes[i] & (0x80 >> bit)) != 0) {
-            final pid = block + i * 8 + bit + 1;
-            final code = '01${pid.toRadixString(16).padLeft(2, '0').toUpperCase()}';
-            supported.add(code);
-          }
+  void _parseSupportedBlock(
+    String command,
+    List<int> bytes,
+    int block,
+    Set<String> supported,
+  ) {
+    for (int i = 0; i < 4; i++) {
+      for (int bit = 0; bit < 8; bit++) {
+        if ((bytes[i] & (0x80 >> bit)) != 0) {
+          final pid = block + i * 8 + bit + 1;
+          supported.add('01${pid.toRadixString(16).padLeft(2, '0').toUpperCase()}');
         }
       }
     }
-
-    return supported;
   }
 
   void dispose() {

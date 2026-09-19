@@ -271,21 +271,32 @@ class ObdController extends ChangeNotifier {
       _transport = transport;
       await transport.connect(device);
 
+      // 蓝牙已连上 → 立刻标记 connected, 后续读取失败不会断开
+      _connectedName = device.displayName;
+      _connectedKind = device.kind;
+      _status = ObdConnectionStatus.connected;
+      _statusMessage = '蓝牙已连接, 正在初始化...';
+      notifyListeners();
+
       final session = Elm327Session(transport);
       _session = session;
-      await session.initialize();
+
+      // ELM 初始化: 即使部分失败也继续
+      try { await session.initialize(); } catch (_) {}
 
       _elmVersion = await session.readVersion();
       _protocol = await session.readProtocol();
 
-      _supported = await session.readSupportedPids();
+      // 读支持位图: 失败也继续 (核心 PID 会兜底)
+      try {
+        _supported = await session.readSupportedPids();
+      } catch (_) {
+        _supported = {};
+      }
       _snapshot.clear();
       _pollCycle = 0;
 
-      _connectedName = device.displayName;
-      _connectedKind = device.kind;
-      _status = ObdConnectionStatus.connected;
-      _statusMessage = '已连接';
+      _statusMessage = '已连接: ${device.displayName}';
 
       await _settings.setLastDevice(
         address: device.address,
@@ -297,7 +308,7 @@ class ObdController extends ChangeNotifier {
     } catch (e, st) {
       _lastError = e.toString();
       _status = ObdConnectionStatus.error;
-      _statusMessage = '连接失败: $e';
+      _statusMessage = '蓝牙连接失败, 请重试';
       await _tryDisconnectTransport();
       debugPrint('OBD connect error: $e\n$st');
     } finally {

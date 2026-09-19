@@ -386,6 +386,13 @@ class _SettingsPanel extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: HudColors.danger, fontSize: 11),
             ),
+            const SizedBox(height: 6),
+            OutlinedButton.icon(
+              onPressed: obd.startBleScan,
+              icon: const Icon(Icons.bluetooth_searching, size: 16),
+              label: const Text('经典蓝牙读不到车? 点这里扫描 BLE OBDII'),
+              style: OutlinedButton.styleFrom(foregroundColor: HudColors.accentTeal),
+            ),
           ],
           Row(
             children: [

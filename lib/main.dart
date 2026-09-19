@@ -55,7 +55,7 @@ class ObdHudApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: obd),
       ],
       child: MaterialApp(
-        title: 'OBD HUD',
+        title: 'OBD查看具',
         debugShowCheckedModeBanner: false,
         theme: HudTheme.dark(),
         home: const HudShell(),

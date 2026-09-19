@@ -1,5 +1,5 @@
 name: obd_hud
-description: "OBD HUD - 蓝牙 OBD2 车载抬头显示仪表盘 (Flutter)"
+description: "OBD查看具 - 蓝牙OBD2车载数据查看工具"
 publish_to: 'none'
 
 version: 1.0.0+1
